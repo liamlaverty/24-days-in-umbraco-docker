@@ -74,7 +74,7 @@ to check both are installed
 ![Alt text](./readmefiles/image-1.png)
 
 
-# Write some docker and environment files
+# Create Docker and environment files
 We need a few docker files to get the project up and running, and a `.env` file. With the exception of `.dockerignore`, these all go in the solution level folder, not inside of the Umbraco project.
 
 - .`env` Contains your environment variables. At runtime, these override any settings in your dotnet appsettings.json files
@@ -85,29 +85,28 @@ We need a few docker files to get the project up and running, and a `.env` file.
 - `dockerfile.umbracosite` an instruction set for Docker to build the Umbraco applications
 - `./UmbracoDockerProject/.dockerignore` a list of files you'd like to exclude from docker's build processes. *Note that this file goes into your Umbraco project, not at the solution level*
 
+# Containerise your Umbraco site
+
+## `UmbracoDockerProject/.dockerignore`
+
+Create a file `.dockerignore` in your Umbraco project directory (the directory with the .csproj file, as opposed to the one with the .sln file)
+
+### The file
+
+```bash
+**/bin/
+**/obj/
+```
+
+### What's the file doing?
+
+This tells Docker to ignore the `bin` and `obj` directories when building your images. This ensures you don't accidentally include locally built assemblies in your docker images.
 
 ## `dockerfile.umbracosite`
 
 For simple projects, a dockerfile will just be named `dockerfile`. In this project, as we have multiple different docker images, they've each got an identifier as a suffix.
 
-### What's happening here?
-
-The file below:
-
-- Build stage:
-  - Pulls down the base image of dotnet 7.0
-  - Copies the `UmbracoDocker/UmbracoDockerProject.csproj"` csproj into the image
-  - Installs all of its dependencies
-  - Builds the site in Release configuration
-  - Publishes the built application to `/publish` 
-- Runtime stage:
-  - Pulls down the base image of dotnet 7.0
-  - Sets the working directory to `/publish`
-  - Copies the content from the build stage into the runtime working directory
-  - Exposes port 80 to allow internet access
-  - Sets the entrypoint for the application to the Umbraco site's DLL
-
-
+### The file
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -130,6 +129,20 @@ EXPOSE 80
 ENTRYPOINT [ "dotnet", "UmbracoDockerProject.dll"]
 ```
 
+### What's the file doing?
+- Build stage:
+  - Pulls down the base image of dotnet 7.0
+  - Copies the `UmbracoDocker/UmbracoDockerProject.csproj"` csproj into the image
+  - Installs all of its dependencies
+  - Builds the site in Release configuration
+  - Publishes the built application to `/publish` 
+- Runtime stage:
+  - Pulls down the base image of dotnet 7.0
+  - Sets the working directory to `/publish`
+  - Copies the content from the build stage into the runtime working directory
+  - Exposes port 80 to allow internet access
+  - Sets the entrypoint for the application to the Umbraco site's DLL
+
 Once you've created this script, you should be able to run `docker build ./ -t umbraco-in-docker -f dockerfile.umbracosite` to build the image. The first time you run this script, it'll take a long time, as it needs to pull down a lot of dependencies. 
 
 Once it's complete, you should be able to open Docker Desktop, click on *Images*, and see an image named `umbraco-in-docker`:
@@ -138,5 +151,102 @@ Once it's complete, you should be able to open Docker Desktop, click on *Images*
 
 
 ## `docker-compose.yml`
+Now that we've got an image, we can create and launch a container using *Docker Compose*. Create the following `docker-compose.yml` file in the soltion directory.
 
-Now that we have an image, we can automate its composition with Docker Compose
+### The file
+
+```yml
+version: '3'
+
+services: 
+  umbraco_website:
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5011:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+volumes: 
+  umbraco_media: 
+    external: false
+```
+
+### What's the file doing?
+
+- The `services` node defines a named `umbraco_website`
+- sets the context (location) of the service to the current directory `.`
+- sets the dockerfile for the service to `dockerfile.umbracosite`  
+- ensures the service restarts any time is stops or encounters an erorr
+- sets the ports for the application to be exposed on. Note that if the port is in use by another application on the host computer, you'll receive an error like `Bind for 0.0.0.0:5011 failed: port is already allocated`
+- Configures the directory `/publish/wwwroot/media` inside of the container to use a docker volume named `umbraco_media`
+- Sets up a volume for `umbraco_media`
+
+Run the command `docker-compose up`. This will successfully launch an Umbraco site with the message **Boot Failed**... But at least we know the code runs. 
+
+![Alt text](readmefiles/docker-boot-failed.png)
+
+Docker Desktop should now have an entry in its *Containers* section named `time-in-umbraco-docker`, with a website `umbraco_website-1`.
+
+![Alt text](readmefiles/docker-container.png)
+
+You'll also have a volume named `time-in-umbraco-docker_umbraco-media`.
+
+![Alt text](readmefiles/docker-volume.png)
+
+
+### Why isn't the site running?
+
+We can inspect the log files to find out why the site isn't running. In docker desktop, select *Containers*, then select *Umbraco_Website-1*, click *Files*, then scroll down the list to the application directory `./publish/umbraco/Logs/UmbracoTraceLog.[datetime].json`. Right click the file and select *Edit* to quickly inspect the file. 
+
+Reading through the logs, there's no database configured for the site!
+
+![Alt text](readmefiles/docker-umbraco-logs.png)
+
+
+# Containerise your MSSQL database
+Containerisng the MSSQL server is a bit more involved than the Umbraco applicaiton was, and will require a few files. 
+
+
+## dockerfile.mssql
+Similar to the `dockerfile.umbracosite` file, we need to tell Docker how to create the MSSQL server image
+
+### The file
+
+```dockerfile
+FROM mcr.microsoft.com/mssql/server:2022-latest
+
+USER root
+
+RUN mkdir -p /var/opt/sqlserver
+
+RUN chown mssql /var/opt/sqlserver
+
+EXPOSE 1433/tcp
+
+COPY docker-setup.sql /
+COPY docker-entrypoint.sh /
+
+RUN chmod +x /docker-entrypoint.sh
+
+# entrypoint & cmd are set by the docker compose file
+ENTRYPOINT [ ]
+CMD [ ]
+
+```
+
+### What's the file doing?
+
+- Specify the base image to use. Currently configured to use 2022-latest, but you may have different requirements or licenses with Micrsoft. Adjust this setting appropriately. 
+- Temporarily switch the user to root so that we can create the required SQL Server directories
+- Creates the `/var/opt/sqlserver` directory and sets `mssql` as an owner of the directory
+- Exposes the server over port `1433`
+- Copies two files to the image `docker-setup.sql` and `docker-entrypoint.sh` (these are created in the next steps)
+- makes `docker-entrypoint.sh` an executable file
+- configures empty entrypoints & command instructions. We'll configure these in `docker-compose.yml` soon
+
+
+Create empty files named `docker-entrypoint.sh` and `docker-setup.sql`. You should now be able to run `docker build ./ -t umbraco-in-docker-mssql-server -f dockerfile.mssql`, after which, your Docker Desktop's list of images will include `umbraco-in-docker-mssql-server`
+
+

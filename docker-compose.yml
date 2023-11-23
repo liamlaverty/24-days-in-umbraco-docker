@@ -1,0 +1,15 @@
+version: '3'
+
+services: 
+  umbraco_website:
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5011:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+volumes: 
+  umbraco_media: 
+    external: false
