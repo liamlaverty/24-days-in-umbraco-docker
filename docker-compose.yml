@@ -1,0 +1,124 @@
+version: '3'
+
+services: 
+  website_frontend_1:
+    container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_frontend_1'
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5012:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+      - umbraco_logs:/publish/umbraco/Logs
+    depends_on:
+      sql_server_db:
+        # this condition forces the website to wait for the database to report "healthy" status 
+        condition: service_healthy
+        # this condition forces the front-end to wait for the backoffice to be "healthy" before starting
+      umbraco_website_backoffice:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: 'System.Data.SqlClient'
+      Umbraco__CMS__Unattended__InstallUnattended: 'false'
+      uSync__Settings__ImportAtStartup: 'false'
+      uSync__Settings__ImportOnFirstBoot: 'false'
+      uSync__Settings__ExportOnSave: 'false'
+      uSync__Settings__ExportOnStartup: 'false'
+      uSync__Settings__DisableDashboard: 'true'
+      uSync__Settings__SummaryDashboard: 'true'
+    networks:
+      - umbraco_application_mssql_network
+    healthcheck:
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 30s
+      timeout: 30s
+      retries: 100
+      start_period: 180s
+  umbraco_website_backoffice:
+    container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_backoffice'
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5011:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+      - umbraco_logs:/publish/umbraco/Logs
+    depends_on:
+      sql_server_db:
+        condition: service_healthy
+    healthcheck:
+      # test to see if the site is online, if the Install Umbraco page
+      # is loaded, this will report failures
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 30s
+      timeout: 30s
+      retries: 100
+      start_period: 180s
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: "System.Data.SqlClient"
+      Umbraco__CMS__Unattended__InstallUnattended: ${UMBRACO_CMS_UNATTENDED_INSTALLUNATTENDED}
+      Umbraco__CMS__Unattended__UnattendedUserName: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_USERNAME}'
+      Umbraco__CMS__Unattended__UnattendedUserEmail: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_EMAIL}'
+      Umbraco__CMS__Unattended__UnattendedUserPassword: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_PASSWORD}'
+      uSync__Settings__ImportOnFirstBoot: 'true'
+      uSync__Settings__ExportOnSave: 'false'
+      uSync__Settings__FirstBootGroup: 'all'
+      uSync__Sets__Default__HandlerDefaults__GuidNames: 'true'
+    networks:
+      - umbraco_application_mssql_network
+  sql_server_db:
+    container_name: ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}
+    build:
+      context: .
+      dockerfile: dockerfile.mssql
+    entrypoint: [
+      "/bin/bash", 
+      "docker-entrypoint.sh"
+    ]
+    command: [ 
+      "/opt/mssql/bin/sqlservr",  
+      "${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}", 
+      "${UMBRACO_DATABASE_SERVER_SA_USERNAME}", 
+      "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}",
+      "${UMBRACO_DATABASE_NAME}",
+      "${UMBRACO_DATABASE_USERNAME_STRING}",
+      "${UMBRACO_DATABASE_PASSWORD_STRING}"      
+    ]
+    image:  mcr.microsoft.com/mssql/server:2022-latest
+    ports: 
+      - "1433:1433"
+    networks:
+      - umbraco_application_mssql_network
+    environment: 
+      SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
+      MSSQL_SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Express"
+      MSSQL_BACKUP_DIR: "/var/opt/mssql"
+      MSSQL_DATA_DIR: "/var/opt/data"
+      MSSQL_LOG_DIR: "/var/opt/log"
+    volumes: 
+     - umbraco_mssql_data:/var/opt/mssql
+    healthcheck:
+      # prevents the Umbraco site running before the database is created
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME} -d ${UMBRACO_DATABASE_NAME} -U ${UMBRACO_DATABASE_USERNAME_STRING} -P ${UMBRACO_DATABASE_PASSWORD_STRING} -Q 'SELECT 1' || exit 1"]      
+      interval: 15s
+      timeout: 30s
+      retries: 5
+      start_period: 20s
+volumes: 
+  umbraco_media: 
+    external: false
+  umbraco_mssql_data:
+    external: false
+  umbraco_logs: 
+    external: false
+networks:
+  umbraco_application_mssql_network: 
+    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_mssql_network"

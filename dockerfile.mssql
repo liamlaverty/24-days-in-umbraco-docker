@@ -1,0 +1,18 @@
+FROM mcr.microsoft.com/mssql/server:2022-latest
+
+USER root
+
+RUN mkdir -p /var/opt/sqlserver
+
+RUN chown mssql /var/opt/sqlserver
+
+EXPOSE 1433/tcp
+
+COPY docker-setup.sql /
+COPY docker-entrypoint.sh /
+
+RUN chmod +x /docker-entrypoint.sh
+
+# entrypoint & cmd are set by the docker compose file
+ENTRYPOINT [ ]
+CMD [ ]
