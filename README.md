@@ -21,7 +21,7 @@ Backoffice credentials:
 
 ## Prepare your project for Docker & Linux
 
-Set your git repository to use Linux end of line configuration. This is important because some scripts written in Windows will not run correctly on your Linux containers later. It's a huge hassle to identify this issue when it comes up. 
+Set your git repository to use Linux end of line configuration for `.sh` and `.cshtml` files. This is important because some scripts written in Windows will not run correctly on your Linux containers later. It's a huge hassle to identify this issue when it comes up. 
 
 - Create a file `.gitignore` in the root of the solution directory
 - Enter the following end or line instructions for Git
@@ -30,6 +30,15 @@ Set your git repository to use Linux end of line configuration. This is importan
 *.sh text eol=lf
 *.cshtml text eol=lf
 ```
+
+To verify and adjust this setting on individual files:
+
+- Open the file in VSCode
+- At the bottom right, check for either `CRLF` or `LF`, which indicates the file line endings mode
+- If set to `CRLF`, update to `LF`
+
+![Alt text](readmefiles/lf-line-endings.png)
+
 
 ## Install Umbraco with the *Clean* package
 
@@ -247,6 +256,119 @@ CMD [ ]
 - configures empty entrypoints & command instructions. We'll configure these in `docker-compose.yml` soon
 
 
-Create empty files named `docker-entrypoint.sh` and `docker-setup.sql`. You should now be able to run `docker build ./ -t umbraco-in-docker-mssql-server -f dockerfile.mssql`, after which, your Docker Desktop's list of images will include `umbraco-in-docker-mssql-server`
+Create empty files named `docker-entrypoint.sh` and `docker-setup.sql`. You should now be able to run `docker build ./ -t umbraco-in-docker-mssql-server -f dockerfile.mssql`, after which, your Docker Desktop's list of images will include `umbraco-in-docker-mssql-server`.
+
+
+## `docker-entrypoint.sh`
+
+This shell script is executed by Docker whenever the mssql server starts up. It's configured in the `docker-compose.yml` file. It's modified from Carl Sargunar's [Umbraco Docker Workshop scripts](https://github.com/CarlSargunar/Umbraco-Docker-Workshop/blob/main/Workshop%20Complete/UmbData/startup.sh)
+
+Make sure the file `docker-entrypoint.sh` is set to `LF` line endings
+
+### The file
+```shell
+#!/bin/bash
+set -e
+
+if [ "$1" = '/opt/mssql/bin/sqlservr' ]; then
+  # If this is the container's first run, initialize the application database
+  if [ ! -f /tmp/app-initialized ]; then
+    # Initialize the application database asynchronously in a background process. This allows a) the SQL Server process to be the main process in the container, which allows graceful shutdown and other goodies, and b) us to only start the SQL Server process once, as opposed to starting, stopping, then starting it again.
+    function initialize_app_database() {
+      # Wait a bit for SQL Server to start. SQL Server's process doesn't provide a clever way to check if it's up or not, and it needs to be up before we can import the application database
+      sleep 15s
+
+      #run the setup script to create the DB and the schema in the DB
+      # These variables are passed in from docker-compose.yml, via dockerfile.mssql
+
+      # The script does the following:
+      #  1. Creates a database with name corresponding to argument $5
+      #  2. Creates a login with name corresponding to argument $6
+      #  3. Creates a username with name corresponding to argument $6_USER 
+      #  4. Grants the user/login with datareader/datawriter/ddladmin roles over the database
+
+      /opt/mssql-tools/bin/sqlcmd -S $2 -U $3 -P $4 -d master -i docker-setup.sql -v UMBRACO_DB_NAME="$5" UMBRACO_DB_USER_LOGIN="$6" UMBRACO_DB_USER_PASSWORD="$7" UMBRACO_DB_USER_NAME="$6_USER"
+      # /opt/mssql-tools/bin/sqlcmd -S $2 -U $3 -P $4 -d master -i docker-setup.sql
+
+      # Note that the container has been initialized so future starts won't wipe changes to the data
+      touch /tmp/app-initialized
+    }
+    initialize_app_database $1 $2 $3 $4 $5 $6 $7 &
+  fi
+fi
+
+exec "$@"
+
+```
+
+### What's the file doing?
+
+- Declares itself as a shell script
+- Sets the script to exit if there are any errors
+- Checks the first argument passed to it is `'/opt/mssql/bin/sqlservr'` to verify we're running the correct shell script
+- Inspects the `/tmp/app-initialized` file to see if this is the container's first run. If so, runs through the setup script
+- runs the script `docker-setup.sql` with the arguments passed into the script
+- marks the container as initialised, by touching `/tmp/app-initialized`
+
+
+## `docker-setup.sql`
+
+The `docker-entrypoint.sh` file executes this file the first time a container is run. It accepts some arguments, creates a database, and assigns a SQL user to it. It's modified from Carl Sargunar's [Umbraco Docker Workshop scripts](https://github.com/CarlSargunar/Umbraco-Docker-Workshop/blob/main/Workshop%20Complete/UmbData/setup.sql)
+
+
+### The file
+```sql
+IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = '$(UMBRACO_DB_NAME)')
+    BEGIN
+        CREATE DATABASE [$(UMBRACO_DB_NAME)]
+    END
+
+CREATE LOGIN $(UMBRACO_DB_USER_LOGIN)   
+    WITH PASSWORD = '$(UMBRACO_DB_USER_PASSWORD)';  
+GO  
+
+-- Creates a database user for the login created above.  
+USE [$(UMBRACO_DB_NAME)]
+    CREATE USER $(UMBRACO_DB_USER_NAME) FOR LOGIN $(UMBRACO_DB_USER_LOGIN);  
+GO  
+
+USE [$(UMBRACO_DB_NAME)]
+    ALTER ROLE db_datareader ADD MEMBER $(UMBRACO_DB_USER_NAME)
+GO  
+
+USE [$(UMBRACO_DB_NAME)]    
+    ALTER ROLE db_datawriter ADD MEMBER $(UMBRACO_DB_USER_NAME)
+GO  
+
+USE [$(UMBRACO_DB_NAME)]
+    ALTER ROLE db_ddladmin ADD MEMBER $(UMBRACO_DB_USER_NAME)
+GO
+```
+
+### What's the file doing?
+Accepts the following arguments from the `docker-compose.yml` file:
+- `UMBRACO_DB_NAME` - the name of the Umbraco database
+- `UMBRACO_DB_USER_LOGIN` - the DB User's login
+- `UMBRACO_DB_USER_PASSWORD` - the DB User's password
+- `UMBRACO_DB_USER_NAME` - the DB User's username
+
+- Check if the database `$UMBRACO_DB_NAME` exists, and creates a new one if not
+- Creates a login for `$UMBRACO_DB_USER_LOGIN` with the password `$UMBRACO_DB_USER_PASSWORD`
+- Creates a database user `$(UMBRACO_DB_USER_NAME)`
+- Switches into the Umbraco database, and sets the following user roles to ` $(UMBRACO_DB_USER_NAME)`
+  - `db_datareader`
+  - `db_datawriter`
+  - `db_ddladmin`
+
+These account roles match the current [Database Account Roles](https://docs.umbraco.com/umbraco-cms/fundamentals/setup/requirements#database-account-roles) documentation, but may need adjusting in the future. 
+
+
+## Adjust the `docker-compose.yml` file
+
+Now that we've got a SQL server image, and all of its startup scripts, we'll need to include it in the `docker-compose.yml` file
+
+---
+
+
 
 
