@@ -1,0 +1,2 @@
+*.sh text eol=lf
+*.cshtml text eol=lf
