@@ -402,3 +402,5 @@ FodyWeavers.xsd
 **/*/contentment
 **/*/wwwroot/clean-assets
 **/*/wwwroot/media
+
+**/.env

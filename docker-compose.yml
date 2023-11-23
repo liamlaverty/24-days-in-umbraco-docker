@@ -10,6 +10,59 @@ services:
       - 5011:80
     volumes:
       - umbraco_media:/publish/wwwroot/media
+    depends_on:
+      sql_server_db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: "System.Data.SqlClient"
+    networks:
+      - umbraco_application_network
+  sql_server_db:
+    build:
+      context: .
+      dockerfile: dockerfile.mssql
+    entrypoint: [
+      "/bin/bash", 
+      "docker-entrypoint.sh"
+    ]
+    command: [ 
+      "/opt/mssql/bin/sqlservr",  
+      "${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}", 
+      "${UMBRACO_DATABASE_SERVER_SA_USERNAME}", 
+      "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}",
+      "${UMBRACO_DATABASE_NAME}",
+      "${UMBRACO_DATABASE_USERNAME_STRING}",
+      "${UMBRACO_DATABASE_PASSWORD_STRING}"      
+    ]
+    container_name: ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}
+    image:  mcr.microsoft.com/mssql/server:2022-latest
+    ports: 
+      - "1433:1433"
+    networks:
+      - umbraco_application_network
+    environment: 
+      SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
+      MSSQL_SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Express"
+      MSSQL_BACKUP_DIR: "/var/opt/mssql"
+      MSSQL_DATA_DIR: "/var/opt/data"
+      MSSQL_LOG_DIR: "/var/opt/log"
+    volumes: 
+     - umbraco_mssql_data:/var/opt/mssql
+    healthcheck:
+      # prevents the Umbraco site running before the database is created
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME} -d ${UMBRACO_DATABASE_NAME} -U ${UMBRACO_DATABASE_USERNAME_STRING} -P ${UMBRACO_DATABASE_PASSWORD_STRING} -Q 'SELECT 1' || exit 1"]      
+      interval: 15s
+      timeout: 30s
+      retries: 5
+      start_period: 20s
 volumes: 
   umbraco_media: 
     external: false
+  umbraco_mssql_data:
+    external: false
+networks:
+  umbraco_application_network: 
+    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_network"

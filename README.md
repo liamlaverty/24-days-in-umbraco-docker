@@ -94,6 +94,49 @@ We need a few docker files to get the project up and running, and a `.env` file.
 - `dockerfile.umbracosite` an instruction set for Docker to build the Umbraco applications
 - `./UmbracoDockerProject/.dockerignore` a list of files you'd like to exclude from docker's build processes. *Note that this file goes into your Umbraco project, not at the solution level*
 
+## `.env`
+This file contains environment variables & config settings for your containerised applications. Don't ever commit this file to your git repositories. In the repository, it's saved under `.env.example`, copy the contents into `.env`, then change the variables to match your project
+
+
+### The file
+```bash
+PROJECT_FRIENDLY_NAME='UMBRACO_DOCKER_PROJECT'
+
+UMBRACO_DATABASE_SERVER_SA_USERNAME='sa'
+UMBRACO_DATABASE_SERVER_SA_PASSWORD='YOUR_PASS_goes_HERE@'
+
+UMBRACO_DATABASE_USERNAME_STRING='EXAMPLE_DATABASE_LOGIN_NAME'
+UMBRACO_DATABASE_PASSWORD_STRING='EXAMPLE_DATABASE_LOGIN_P@ssword'
+
+UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME='example_umbraco_sql_server_db'
+UMBRACO_DATABASE_NAME='EXAMPLE_UMBRACO_DATABASE_NAME'
+
+UMBRACO_CMS_UNATTENDED_INSTALLUNATTENDED=true
+UMBRACO_CMS_UNATTENDED_UNATTENDED_USERNAME='example username'
+UMBRACO_CMS_UNATTENDED_UNATTENDED_EMAIL='example@email.com'
+UMBRACO_CMS_UNATTENDED_UNATTENDED_PASSWORD='TEST12345@'
+```
+
+### What's the file doing?
+Declares environment variables:
+
+- `PROJECT_FRIENDLY_NAME` a friendly name for your project. Should be discrete per Docker project
+- `UMBRACO_DATABASE_SERVER_SA_USERNAME` the Super Admin user for your SQL database
+- `UMBRACO_DATABASE_SERVER_SA_PASSWORD` the Super Admin user's password
+
+- `UMBRACO_DATABASE_USERNAME_STRING` the username for your Umbraco database user
+- `UMBRACO_DATABASE_PASSWORD_STRING` the password for your Umbraco database user
+
+- `UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME` the human readable name for your SQL Server in Docker
+- `UMBRACO_DATABASE_NAME` the name of your database
+
+- `UMBRACO_CMS_UNATTENDED_INSTALLUNATTENDED` toggle to turn unattended installations on and off
+- `UMBRACO_CMS_UNATTENDED_UNATTENDED_USERNAME` unattended installation username
+- `UMBRACO_CMS_UNATTENDED_UNATTENDED_EMAIL` unattended installation email
+- `UMBRACO_CMS_UNATTENDED_UNATTENDED_PASSWORD` unattended installation password
+
+These settings will be used by the rest of this guide. It's important to adjust them to your application's requirements. 
+
 # Containerise your Umbraco site
 
 ## `UmbracoDockerProject/.dockerignore`
@@ -192,7 +235,7 @@ volumes:
 - Configures the directory `/publish/wwwroot/media` inside of the container to use a docker volume named `umbraco_media`
 - Sets up a volume for `umbraco_media`
 
-Run the command `docker-compose up`. This will successfully launch an Umbraco site with the message **Boot Failed**... But at least we know the code runs. 
+Run the command `docker-compose up`. This will successfully launch an Umbraco site with the message **Boot Failed**... But at least we know the code runs.  
 
 ![Alt text](readmefiles/docker-boot-failed.png)
 
@@ -280,13 +323,6 @@ if [ "$1" = '/opt/mssql/bin/sqlservr' ]; then
 
       #run the setup script to create the DB and the schema in the DB
       # These variables are passed in from docker-compose.yml, via dockerfile.mssql
-
-      # The script does the following:
-      #  1. Creates a database with name corresponding to argument $5
-      #  2. Creates a login with name corresponding to argument $6
-      #  3. Creates a username with name corresponding to argument $6_USER 
-      #  4. Grants the user/login with datareader/datawriter/ddladmin roles over the database
-
       /opt/mssql-tools/bin/sqlcmd -S $2 -U $3 -P $4 -d master -i docker-setup.sql -v UMBRACO_DB_NAME="$5" UMBRACO_DB_USER_LOGIN="$6" UMBRACO_DB_USER_PASSWORD="$7" UMBRACO_DB_USER_NAME="$6_USER"
       # /opt/mssql-tools/bin/sqlcmd -S $2 -U $3 -P $4 -d master -i docker-setup.sql
 
@@ -298,7 +334,6 @@ if [ "$1" = '/opt/mssql/bin/sqlservr' ]; then
 fi
 
 exec "$@"
-
 ```
 
 ### What's the file doing?
@@ -362,11 +397,138 @@ Accepts the following arguments from the `docker-compose.yml` file:
 
 These account roles match the current [Database Account Roles](https://docs.umbraco.com/umbraco-cms/fundamentals/setup/requirements#database-account-roles) documentation, but may need adjusting in the future. 
 
+## Create a Volume for your SQL data
+
+All data in a Docker container is destroyed between releases. That's not great for SQL servers, so next we need to create some persistent storage on the machine for our SQL data. This will survive server restarts & docker teardowns.
+
+Run the command `docker volume create umbraco_docker_project_mssql_data` to create the volume
 
 ## Adjust the `docker-compose.yml` file
 
-Now that we've got a SQL server image, and all of its startup scripts, we'll need to include it in the `docker-compose.yml` file
+Now that we've got a SQL server image, and all of its startup scripts, we'll need to include it in the `docker-compose.yml` file. 
 
+
+
+### The file
+```yml
+version: '3'
+
+services: 
+  umbraco_website:
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5011:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+    depends_on:
+      sql_server_db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: "System.Data.SqlClient"
+    networks:
+      - umbraco_application_network
+  sql_server_db:
+    build:
+      context: .
+      dockerfile: dockerfile.mssql
+    entrypoint: [
+      "/bin/bash", 
+      "docker-entrypoint.sh"
+    ]
+    command: [ 
+      "/opt/mssql/bin/sqlservr",  
+      "${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}", 
+      "${UMBRACO_DATABASE_SERVER_SA_USERNAME}", 
+      "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}",
+      "${UMBRACO_DATABASE_NAME}",
+      "${UMBRACO_DATABASE_USERNAME_STRING}",
+      "${UMBRACO_DATABASE_PASSWORD_STRING}"      
+    ]
+    container_name: ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}
+    image:  mcr.microsoft.com/mssql/server:2022-latest
+    ports: 
+      - "1433:1433"
+    networks:
+      - umbraco_application_network
+    environment: 
+      SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
+      MSSQL_SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Express"
+      MSSQL_BACKUP_DIR: "/var/opt/mssql"
+      MSSQL_DATA_DIR: "/var/opt/data"
+      MSSQL_LOG_DIR: "/var/opt/log"
+    volumes: 
+     - umbraco_mssql_data:/var/opt/mssql
+    healthcheck:
+      # prevents the Umbraco site running before the database is created
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME} -d ${UMBRACO_DATABASE_NAME} -U ${UMBRACO_DATABASE_USERNAME_STRING} -P ${UMBRACO_DATABASE_PASSWORD_STRING} -Q 'SELECT 1' || exit 1"]      
+      interval: 15s
+      timeout: 30s
+      retries: 5
+      start_period: 20s
+volumes: 
+  umbraco_media: 
+    external: false
+  umbraco_mssql_data:
+    external: false
+networks:
+  umbraco_application_network: 
+    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_network"
+```
+
+### What's the file doing?
+We've included the new MSSQL server DB, added a new network, and connected the Umbraco site to some configuration files. 
+
+- A new `volume` is referenced for the MSSQL data
+- A new network is added to allow the applications to communicate
+- A new `sql_derver_db` node
+  - Sets the context & builds the image according to `dockerfile.mssql`
+  - Tells docker that the bash script `docker-entrypoint.sh` script should run when this container starts
+  - Passes a set of arguments to `docker-entrypoint.sh` through the `command` node
+  - sets a friendly name for the container image
+  - Specifies the mssql image from Microsoft's container registry
+  - Exposes the port 1433, allowing external connections to the server
+  - Attaches the SQL server to the new `network` so that other containerised apps can communicate with it
+  - Sets a series of environment variables, mostly from the `.env` file
+    - `ACCEPT_EULA` instructs the SQL server to auto-accept the license agreement
+    - `MSSQL_PID` instructs the SQL server to start in `Express` mode. Other options include `Developer` or `Enterprise`, note that Microsoft requires licenses for some of these options
+    - Sets the backup, data, and log directories at `/var/opt/mssql`
+  - Associates the volume we created earlier, configuring it to host `/var/opt/mssql`
+  - Creates a healthcheck, which attempts to query the database with the Umbraco SQL user
+- On the `umbraco_website` node
+  - Added a new `depends_on` node, this checks if the SQL Server is successfully running before we launch the Umbraco site
+  - Two new `environment` variables have been added to specify the UmbracoDbDSN and UmbracoDbDSN_ProviderName
+  - A new `network` component has been added to connect the Umbraco application to the MSSQL server, without this node, the two isolated processes won't be able to talk to each other
+
+
+The full list of environment variables you can pass to MSSQL Server in the `environment` node can be found in [MSDN's documentation](https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-configure-environment-variables?view=sql-server-ver16).
+
+Run `docker-compose down --rmi local --volumes` to remove the broken Umbraco site, then run `docker-compose up`. After a minute or so, your Docker Desktop will include two services, an Umbraco Website, and a SQL database:
+
+![Alt text](image.png)
+
+Visiting the port, we can see the Umbraco Installation page:
+
+![Alt text](image-1.png)
+
+After filling out the form, we can see the Clean Starter Kit:
+
+![Alt text](image-2.png)
+
+
+
+# Teardown your new Docker environment
+
+Note that you can reverse the `docker-compose up` command at any time by running 
+
+`docker-compose down --rmi local --volumes`
+
+This will remove any docker-compose generated components (including your media and data)
 ---
 
 
