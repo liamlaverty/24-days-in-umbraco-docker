@@ -17,6 +17,10 @@ Backoffice credentials:
 - Email: admin@example.com
 - Password: One234567890@
 
+## "The connection was reset"
+
+When removing and recreating your Docker containers, you'll often see your localhost site throw an error like this for the first minute or so. This is normal, and just needs a little patience. We'll install a healthcheck, which will help you identify when the application is ready for connections. 
+
 # Starting from scratch
 
 ## Prepare your project for Docker & Linux
@@ -696,6 +700,12 @@ Note that, if you're attempting to replicate load-balancing, you'll still need t
 
 Right now the app is launching with Paul Seal's Clean Starterkit content. What if we want to launch the site with some different default content? We can make use of [Kevin Jump & Jumoo's uSync](https://jumoo.co.uk/uSync/), and its auto-import features to launch a site full of test content. Install uSync, then update `docker-compose` with the following changes. 
 
+### Installations, and edits
+
+- Install the `Clean.Core` nuget package: https://www.nuget.org/packages/clean.core
+- Uninstall the `Clean` nuget package: https://www.nuget.org/packages/clean
+- Install the `uSync` nuget package: https://www.nuget.org/packages/usync
+
 
 ### The file changes
 
@@ -718,6 +728,9 @@ In the `website_frontend_1`'s `environment` node, add the following configuratio
       uSync__Settings__DisableDashboard: 'true'
       uSync__Settings__SummaryDashboard: 'true'
 ```
+
+When you clear down and launch the site, you should now see a Clean Starter Kit website including content about Whales.
+
 ## Quickly test if your app runs on dotnet v8.0
 
 One advantage of containerisation is that it allows you to very quickly see issues you'll have if you're moving frameworks, or underlying technologies in your stack. dotnet-v8 was released recently, and we can check if the app runs by following these simple steps:
@@ -726,7 +739,7 @@ One advantage of containerisation is that it allows you to very quickly see issu
 - (this step deletes all your data) Run `docker-compose down --rmi local --volumes` to remove your application from Docker 
 - Run `docker-compose up` to launch a testable version of your app 
 
-Unsurprisingly, the app doesn't run first time, but we can see production-level exceptions and start to debug those, without polluting our application's repository with WIP version changes. 
+Unsurprisingly, the app doesn't run first time, but we can see production-level exceptions and start to debug those.
 
 ---
 
