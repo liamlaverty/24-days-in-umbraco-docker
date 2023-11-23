@@ -9,6 +9,12 @@ The project creates three containers, then installs Paul Seal's [Clean Starter K
 - Backoffice site
 - MS-SQL database
 
+# Quickstart
+
+- Install Docker Desktop
+- Run `docker volume create umbraco_docker_project_mssql_data` to create a volume
+- Run `docker compose --env-file ./.env.example up --build ` to build & deploy the app to your local Docker
+
 ## Credentials
 
 Backoffice credentials:
@@ -22,6 +28,7 @@ Backoffice credentials:
 When removing and recreating your Docker containers, you'll often see your localhost site throw an error like this for the first minute or so. This is normal, and just needs a little patience. We'll install a healthcheck, which will help you identify when the application is ready for connections. 
 
 # Starting from scratch
+This section will run you through creating this repository from scratch. 
 
 ## Prepare your project for Docker & Linux
 
