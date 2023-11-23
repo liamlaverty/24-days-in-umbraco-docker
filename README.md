@@ -689,12 +689,35 @@ We're replicating our backoffice instance into a new frontend instance. The key 
 
 Once you've  launched the site using `docker-compose up`, you should be able to sign into the backoffice on localhost:5011/umbraco, make a change to the site, and then see that change in the front-end at localhost:5012
 
-
 Note that, if you're attempting to replicate load-balancing, you'll still need to implement the documentation's [Load Balancing guidance](https://docs.umbraco.com/umbraco-cms/fundamentals/setup/server-setup/load-balancing). It's especially important to set your non-backoffice servers to be `Subscriber` servers, see more about [Server Roles in the official Umbraco documentation](https://docs.umbraco.com/umbraco-cms/fundamentals/setup/server-setup/load-balancing#automatic-server-role-election). 
 
 
+## Use uSync to launch your application with content
+
+Right now the app is launching with Paul Seal's Clean Starterkit content. What if we want to launch the site with some different default content? We can make use of [Kevin Jump & Jumoo's uSync](https://jumoo.co.uk/uSync/), and its auto-import features to launch a site full of test content. Install uSync, then update `docker-compose` with the following changes. 
 
 
+### The file changes
+
+In the `umbraco_website_backoffice`'s `environment` node, add the following configurations to enable uSync. 
+
+```yml
+      uSync__Settings__ImportOnFirstBoot: 'true'
+      uSync__Settings__ExportOnSave: 'false'
+      uSync__Settings__FirstBootGroup: 'all'
+      uSync__Sets__Default__HandlerDefaults__GuidNames: 'true'
+```
+
+In the `website_frontend_1`'s `environment` node, add the following configurations to disable uSync there. We don't want to run any of these features on the front-ends.
+
+```yml
+      uSync__Settings__ImportAtStartup: 'false'
+      uSync__Settings__ImportOnFirstBoot: 'false'
+      uSync__Settings__ExportOnSave: 'false'
+      uSync__Settings__ExportOnStartup: 'false'
+      uSync__Settings__DisableDashboard: 'true'
+      uSync__Settings__SummaryDashboard: 'true'
+```
 ## Quickly test if your app runs on dotnet v8.0
 
 One advantage of containerisation is that it allows you to very quickly see issues you'll have if you're moving frameworks, or underlying technologies in your stack. dotnet-v8 was released recently, and we can check if the app runs by following these simple steps:

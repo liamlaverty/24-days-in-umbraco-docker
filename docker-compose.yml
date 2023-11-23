@@ -23,6 +23,12 @@ services:
       ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
       ConnectionStrings__umbracoDbDSN_ProviderName: 'System.Data.SqlClient'
       Umbraco__CMS__Unattended__InstallUnattended: 'false'
+      uSync__Settings__ImportAtStartup: 'false'
+      uSync__Settings__ImportOnFirstBoot: 'false'
+      uSync__Settings__ExportOnSave: 'false'
+      uSync__Settings__ExportOnStartup: 'false'
+      uSync__Settings__DisableDashboard: 'true'
+      uSync__Settings__SummaryDashboard: 'true'
     networks:
       - umbraco_application_mssql_network
     healthcheck:
@@ -60,6 +66,10 @@ services:
       Umbraco__CMS__Unattended__UnattendedUserName: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_USERNAME}'
       Umbraco__CMS__Unattended__UnattendedUserEmail: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_EMAIL}'
       Umbraco__CMS__Unattended__UnattendedUserPassword: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_PASSWORD}'
+      uSync__Settings__ImportOnFirstBoot: 'true'
+      uSync__Settings__ExportOnSave: 'false'
+      uSync__Settings__FirstBootGroup: 'all'
+      uSync__Sets__Default__HandlerDefaults__GuidNames: 'true'
     networks:
       - umbraco_application_mssql_network
   sql_server_db:
