@@ -415,9 +415,21 @@ All data in a Docker container is destroyed between releases. That's not great f
 
 Run the command `docker volume create umbraco_docker_project_mssql_data` to create the volume
 
+## Mac Users: Docker MSSQL Server on Apple Silicon
+
+If you're using a first generation Apple Silicon Mac (likely the case if your Apple computer was manufactured in late 2020 or 2021), you will need to configure Rosetta Emulation to get MSSQL server running:
+
+- Open docker desktop
+- Click the Settings cog in the top right
+- In the *General* tab, make sure *Use virtualization framework* is set to `true`
+- Click *Features in Development*
+- Set *Use Rosetta for x86/amd64 emulation on Apple Silicon* to `true`
+
 ## Adjust the `docker-compose.yml` file
 
 Now that we've got a SQL server image, and all of its startup scripts, we'll need to include it in the `docker-compose.yml` file. 
+
+
 
 
 
@@ -442,7 +454,7 @@ services:
       ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
       ConnectionStrings__umbracoDbDSN_ProviderName: "System.Data.SqlClient"
     networks:
-      - umbraco_application_network
+      - umbraco_application_mssql_network
   sql_server_db:
     build:
       context: .
@@ -465,7 +477,7 @@ services:
     ports: 
       - "1433:1433"
     networks:
-      - umbraco_application_network
+      - umbraco_application_mssql_network
     environment: 
       SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
       MSSQL_SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
@@ -489,8 +501,8 @@ volumes:
   umbraco_mssql_data:
     external: false
 networks:
-  umbraco_application_network: 
-    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_network"
+  umbraco_application_mssql_network: 
+    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_mssql_network"
 ```
 
 ### What's the file doing?
@@ -557,9 +569,141 @@ To connect as Admin, enter the following properties:
 - In the options tab >> 
   - Connect to database: `EXAMPLE_UMBRACO_DATABASE_NAME`
 
+![Alt text](readmefiles/mssqlserver-config.png)
 
-# Configure Frontend server(s)
+## Configure unattended installs
 
+By adding a new node into `docker-compose.yml`, we can quickly add multi-instance support. 
+
+### The file changes
+In the `docker-compose.yml` file, update `umbraco_website`'s `environment` node to include the following properties
+
+```yml
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: "System.Data.SqlClient"
+      Umbraco__CMS__Unattended__InstallUnattended: ${UMBRACO_CMS_UNATTENDED_INSTALLUNATTENDED}
+      Umbraco__CMS__Unattended__UnattendedUserName: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_USERNAME}'
+      Umbraco__CMS__Unattended__UnattendedUserEmail: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_EMAIL}'
+      Umbraco__CMS__Unattended__UnattendedUserPassword: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_PASSWORD}'
+```
+
+### What's the change doing?
+- Adds four new environment variables
+  - Config to toggle unattended installs on and off
+  - The Username, email, and password for your unattended install user
+
+Run the following commands to drop your old application, and restart with unattended installs:
+
+- (this step deletes all your data) Run `docker-compose down --rmi local --volumes` to remove your application from Docker 
+- Run `docker-compose up` to relaunch the app
+
+When your app relaunches, it should automatically install Umbraco, and instead of being presented with the Install screen, you'll be presented with the Clean Starter Kit.
+
+## Add healthchecks to your site startup
+
+We've configured a healthcheck for the SQL server already, we can add one for our web applications too. In the `docker-compose.yml` file, on the `umbraco_website` node, add the following node:
+
+
+### The file changes
+```yml
+    healthcheck:
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 30s
+      timeout: 30s
+      retries: 100
+      start_period: 180s
+```
+
+### What's the change doing?
+
+Adds an automatic healthcheck ot the site
+- adds a `test` definition, a simple `curl` to the front-end just checks there's no `500` error
+- Sets the interval to 30 seconds, and waits 180 seconds before launching 
+
+After implementing this change, your Docker Desktop will wait until the test has passed before highlighting the application in green as "running"
+
+
+## Split the Umbraco application into two, a frontend and backoffice
+
+Now that our Umbraco application has a healthcheck, we can add new applications which depend on it - for example, a front-end. In the `docker-compose.yml`, make the following changes
+
+### The file changes
+**In the `umbraco_website` node**
+- Update the node's name from `umbraco_website` to `umbraco_website_backoffice`
+- Add a new node `container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_backoffice'`
+- Add a new volume property `umbraco_logs:/publish/umbraco/Logs` 
+
+**In the `volume` node**
+  - Add a new property:
+```yml  
+  umbraco_logs: 
+    external: false
+```
+
+**Create a new node `umbraco_website_frontend`**
+
+
+```yml
+website_frontend_1:
+    container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_frontend_1'
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5012:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+      - umbraco_logs:/publish/umbraco/Logs
+    depends_on:
+      sql_server_db:
+        # this condition forces the website to wait for the database to report "healthy" status 
+        condition: service_healthy
+        # this condition forces the front-end to wait for the backoffice to be "healthy" before starting
+      umbraco_website_backoffice:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: 'System.Data.SqlClient'
+      Umbraco__CMS__Unattended__InstallUnattended: 'false'
+    networks:
+      - umbraco_application_mssql_network
+    healthcheck:
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 30s
+      timeout: 30s
+      retries: 100
+      start_period: 180s
+```
+
+### What's the change doing?
+We're replicating our backoffice instance into a new frontend instance. The key differences between the two configurations are:
+
+- The container names are updated so we can see the difference between the two
+- A shared `logs` volume has been created to track both front and backend logs in one location
+- The front-end:
+  - Attached to the mssql network
+  - Has a different port `5012` to the backoffice, `5012` instead of `5011`
+  - `Umbraco__CMS__Unattended__InstallUnattended` is set to false, so that the backoffice doesn't attempt to auto-install Umbraco
+
+Once you've  launched the site using `docker-compose up`, you should be able to sign into the backoffice on localhost:5011/umbraco, make a change to the site, and then see that change in the front-end at localhost:5012
+
+
+Note that, if you're attempting to replicate load-balancing, you'll still need to implement the documentation's [Load Balancing guidance](https://docs.umbraco.com/umbraco-cms/fundamentals/setup/server-setup/load-balancing). It's especially important to set your non-backoffice servers to be `Subscriber` servers, see more about [Server Roles in the official Umbraco documentation](https://docs.umbraco.com/umbraco-cms/fundamentals/setup/server-setup/load-balancing#automatic-server-role-election). 
+
+
+
+
+## Quickly test if your app runs on dotnet v8.0
+
+One advantage of containerisation is that it allows you to very quickly see issues you'll have if you're moving frameworks, or underlying technologies in your stack. dotnet-v8 was released recently, and we can check if the app runs by following these simple steps:
+
+- Open `dockerfile.umbracosite` and edit `sdk:7.0` to `sdk:8.0`
+- (this step deletes all your data) Run `docker-compose down --rmi local --volumes` to remove your application from Docker 
+- Run `docker-compose up` to launch a testable version of your app 
+
+Unsurprisingly, the app doesn't run first time, but we can see production-level exceptions and start to debug those, without polluting our application's repository with WIP version changes. 
 
 ---
 

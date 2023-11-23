@@ -1,7 +1,38 @@
 version: '3'
 
 services: 
-  umbraco_website:
+  website_frontend_1:
+    container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_frontend_1'
+    build:
+      context: .
+      dockerfile: dockerfile.umbracosite
+    restart: always
+    ports:
+      - 5012:80
+    volumes:
+      - umbraco_media:/publish/wwwroot/media
+      - umbraco_logs:/publish/umbraco/Logs
+    depends_on:
+      sql_server_db:
+        # this condition forces the website to wait for the database to report "healthy" status 
+        condition: service_healthy
+        # this condition forces the front-end to wait for the backoffice to be "healthy" before starting
+      umbraco_website_backoffice:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
+      ConnectionStrings__umbracoDbDSN_ProviderName: 'System.Data.SqlClient'
+      Umbraco__CMS__Unattended__InstallUnattended: 'false'
+    networks:
+      - umbraco_application_mssql_network
+    healthcheck:
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 30s
+      timeout: 30s
+      retries: 100
+      start_period: 180s
+  umbraco_website_backoffice:
+    container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_backoffice'
     build:
       context: .
       dockerfile: dockerfile.umbracosite
@@ -10,15 +41,29 @@ services:
       - 5011:80
     volumes:
       - umbraco_media:/publish/wwwroot/media
+      - umbraco_logs:/publish/umbraco/Logs
     depends_on:
       sql_server_db:
         condition: service_healthy
+    healthcheck:
+      # test to see if the site is online, if the Install Umbraco page
+      # is loaded, this will report failures
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 30s
+      timeout: 30s
+      retries: 100
+      start_period: 180s
     environment:
       ConnectionStrings__umbracoDbDSN: "Server=${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME},1433;Database=${UMBRACO_DATABASE_NAME};User Id=${UMBRACO_DATABASE_USERNAME_STRING};Password=${UMBRACO_DATABASE_PASSWORD_STRING};TrustServerCertificate=true;"
       ConnectionStrings__umbracoDbDSN_ProviderName: "System.Data.SqlClient"
+      Umbraco__CMS__Unattended__InstallUnattended: ${UMBRACO_CMS_UNATTENDED_INSTALLUNATTENDED}
+      Umbraco__CMS__Unattended__UnattendedUserName: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_USERNAME}'
+      Umbraco__CMS__Unattended__UnattendedUserEmail: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_EMAIL}'
+      Umbraco__CMS__Unattended__UnattendedUserPassword: '${UMBRACO_CMS_UNATTENDED_UNATTENDED_PASSWORD}'
     networks:
-      - umbraco_application_network
+      - umbraco_application_mssql_network
   sql_server_db:
+    container_name: ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}
     build:
       context: .
       dockerfile: dockerfile.mssql
@@ -35,12 +80,11 @@ services:
       "${UMBRACO_DATABASE_USERNAME_STRING}",
       "${UMBRACO_DATABASE_PASSWORD_STRING}"      
     ]
-    container_name: ${UMBRACO_DATABASE_SERVER_AND_CONTAINER_NAME}
     image:  mcr.microsoft.com/mssql/server:2022-latest
     ports: 
       - "1433:1433"
     networks:
-      - umbraco_application_network
+      - umbraco_application_mssql_network
     environment: 
       SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
       MSSQL_SA_PASSWORD: "${UMBRACO_DATABASE_SERVER_SA_PASSWORD}"
@@ -63,6 +107,8 @@ volumes:
     external: false
   umbraco_mssql_data:
     external: false
+  umbraco_logs: 
+    external: false
 networks:
-  umbraco_application_network: 
-    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_network"
+  umbraco_application_mssql_network: 
+    name: "${PROJECT_FRIENDLY_NAME}_umbraco_application_mssql_network"
