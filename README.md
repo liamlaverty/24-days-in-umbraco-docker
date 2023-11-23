@@ -235,6 +235,8 @@ volumes:
 - Configures the directory `/publish/wwwroot/media` inside of the container to use a docker volume named `umbraco_media`
 - Sets up a volume for `umbraco_media`
 
+### Running `docker-compose` commands
+
 Run the command `docker-compose up`. This will successfully launch an Umbraco site with the message **Boot Failed**... But at least we know the code runs.  
 
 ![Alt text](readmefiles/docker-boot-failed.png)
@@ -246,6 +248,16 @@ Docker Desktop should now have an entry in its *Containers* section named `time-
 You'll also have a volume named `time-in-umbraco-docker_umbraco-media`.
 
 ![Alt text](readmefiles/docker-volume.png)
+
+
+### Undoing `docker-compose` commands
+
+*Note* that you can reverse the `docker-compose up` command at any time by running:
+
+- `docker-compose down --rmi local --volumes` to remove all docker artifacts, and data volumes
+- `docker-compose down --rmi local` to remove all docker artifacts, but leave data 
+
+This will remove any docker-compose generated components (including your media and data). It's a good idea to clear down the data & volumes while debugging your Docker setup.
 
 
 ### Why isn't the site running?
@@ -510,25 +522,45 @@ The full list of environment variables you can pass to MSSQL Server in the `envi
 
 Run `docker-compose down --rmi local --volumes` to remove the broken Umbraco site, then run `docker-compose up`. After a minute or so, your Docker Desktop will include two services, an Umbraco Website, and a SQL database:
 
-![Alt text](image.png)
+![Alt text](readmefiles/application-launched-image.png)
 
 Visiting the port, we can see the Umbraco Installation page:
 
-![Alt text](image-1.png)
+![Alt text](readmefiles/application-launched-image-1.png)
 
 After filling out the form, we can see the Clean Starter Kit:
 
-![Alt text](image-2.png)
+![Alt text](readmefiles/application-launched-image-2.png)
+
+Umbraco's now configured to run in Docker! But we can do better. The following optional sections will configure automated installations, use usync to automatically copy data into the website, and connect an extra front-end server. 
+
+## Connecting to your Docker MSSQL databases
+
+You can connect to your Docker hosted SQL with MSSQL Server Studio from your desktop. To connect as the Umbraco Application user, enter the following properties (values are set in the `.env` file, the port is set in `docker-compose.yml`):
+
+- Server Type: Database Engine
+- Server name: `localhost,1433` 
+- Authentication: `SQL Server Authentication`
+- Login: `EXAMPLE_DATABASE_LOGIN_NAME`
+- Password: `EXAMPLE_DATABASE_LOGIN_P@ssword`
+- In the options tab >> 
+  - Connect to database: `EXAMPLE_UMBRACO_DATABASE_NAME`
 
 
+To connect as Admin, enter the following properties:
 
-# Teardown your new Docker environment
+- Server Type: Database Engine
+- Server name: `localhost,1433` 
+- Authentication: `SQL Server Authentication`
+- Login: `sa`
+- Password: `YOUR_PASS_goes_HERE@`
+- In the options tab >> 
+  - Connect to database: `EXAMPLE_UMBRACO_DATABASE_NAME`
 
-Note that you can reverse the `docker-compose up` command at any time by running 
 
-`docker-compose down --rmi local --volumes`
+# Configure Frontend server(s)
 
-This will remove any docker-compose generated components (including your media and data)
+
 ---
 
 
