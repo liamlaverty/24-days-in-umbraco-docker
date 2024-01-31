@@ -116,7 +116,7 @@ volumes:
   umbraco_media: 
     external: false
   umbraco_mssql_data:
-    external: false
+    external: true
   umbraco_logs: 
     external: false
 networks:
