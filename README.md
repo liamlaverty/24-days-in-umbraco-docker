@@ -174,7 +174,7 @@ For simple projects, a dockerfile will just be named `dockerfile`. In this proje
 ```dockerfile
 # syntax=docker/dockerfile:1
 
-FROM mcr.microsoft.com/dotnet/sdk:7.0 as build-env 
+FROM mcr.microsoft.com/dotnet/sdk:8.0 as build-env 
 
 # Build Stage
 WORKDIR /src
@@ -184,7 +184,7 @@ COPY . .
 RUN dotnet publish UmbracoDocker.sln --configuration Release --output /publish
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/sdk:7.0 as runtime-env
+FROM mcr.microsoft.com/dotnet/sdk:8.0 as runtime-env
 WORKDIR /publish
 COPY --from=build-env /publish .
 ENV ASPNETCORE_URLS "http://+:80"
@@ -194,13 +194,13 @@ ENTRYPOINT [ "dotnet", "UmbracoDockerProject.dll"]
 
 ### What's the file doing?
 - Build stage:
-  - Pulls down the base image of dotnet 7.0
+  - Pulls down the base image of dotnet 8.0
   - Copies the `UmbracoDocker/UmbracoDockerProject.csproj"` csproj into the image
   - Installs all of its dependencies
   - Builds the site in Release configuration
   - Publishes the built application to `/publish` 
 - Runtime stage:
-  - Pulls down the base image of dotnet 7.0
+  - Pulls down the base image of dotnet 8.0
   - Sets the working directory to `/publish`
   - Copies the content from the build stage into the runtime working directory
   - Exposes port 80 to allow internet access
@@ -737,19 +737,3 @@ In the `website_frontend_1`'s `environment` node, add the following configuratio
 ```
 
 When you clear down and launch the site, you should now see a Clean Starter Kit website including content about Whales.
-
-## Quickly test if your app runs on dotnet v8.0
-
-One advantage of containerisation is that it allows you to very quickly see issues you'll have if you're moving frameworks, or underlying technologies in your stack. dotnet-v8 was released recently, and we can check if the app runs by following these simple steps:
-
-- Open `dockerfile.umbracosite` and edit `sdk:7.0` to `sdk:8.0`
-- (this step deletes all your data) Run `docker-compose down --rmi local --volumes` to remove your application from Docker 
-- Run `docker-compose up` to launch a testable version of your app 
-
-Unsurprisingly, the app doesn't run first time, but we can see production-level exceptions and start to debug those.
-
----
-
-
-
-
