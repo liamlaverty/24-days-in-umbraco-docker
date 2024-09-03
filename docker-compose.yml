@@ -1,5 +1,3 @@
-version: '3'
-
 services: 
   website_frontend_1:
     container_name: '${PROJECT_FRIENDLY_NAME}_umbraco_frontend_1'
